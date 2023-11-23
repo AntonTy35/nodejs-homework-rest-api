@@ -2,8 +2,6 @@ const mongoose = require("mongoose");
 
 const app = require("./app");
 
-mongoose.Promise = global.Promise;
-
 const { DB_URI, PORT = 3000 } = process.env;
 mongoose.set("strictQuery", true);
 
