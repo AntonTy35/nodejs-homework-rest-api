@@ -141,3 +141,8 @@ controllers/contacts.old.js
 models/contacts.old.js
 models/contacts.old.json
 schemas/contacts.old.js
+
+tmp/*
+!tmp/.gitkeep
+public/avatars/*
+!public/avatars/.gitkeep
