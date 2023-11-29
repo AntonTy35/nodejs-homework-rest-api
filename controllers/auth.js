@@ -1,5 +1,9 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const gravatar = require("gravatar");
+const path = require("path");
+const fs = require("fs/promises");
+const Jimp = require("jimp");
 
 const { User } = require("../models/user");
 
@@ -16,8 +20,13 @@ const register = async (req, res) => {
   }
 
   const hashPassword = await bcrypt.hash(password, 10);
+  const avatarURL = gravatar.url(email);
 
-  const newUser = await User.create({ ...req.body, password: hashPassword });
+  const newUser = await User.create({
+    ...req.body,
+    password: hashPassword,
+    avatarURL,
+  });
 
   res.status(201).json({
     user: {
@@ -84,10 +93,32 @@ const updateSubscription = async (req, res) => {
   });
 };
 
+const uploadAvatar = async (req, res, next) => {
+  const image = await Jimp.read(req.file.path);
+  image.resize(250, 250).write(req.file.path);
+
+  await fs.rename(
+    req.file.path,
+    path.join(__dirname, "..", "public/avatars", req.file.filename)
+  );
+
+  const user = await User.findByIdAndUpdate(
+    req.user.id,
+    { avatarURL: req.file.filename },
+    { new: true }
+  ).exec();
+  if (user === null) {
+    return res.status(404).send({ massege: "User not found" });
+  }
+
+  res.send(user);
+};
+
 module.exports = {
   register: ctrlWrapper(register),
   login: ctrlWrapper(login),
   getCurrent: ctrlWrapper(getCurrent),
   logout: ctrlWrapper(logout),
   updateSubscription: ctrlWrapper(updateSubscription),
+  uploadAvatar: ctrlWrapper(uploadAvatar),
 };
