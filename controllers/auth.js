@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const gravatar = require("gravatar");
@@ -7,9 +8,9 @@ const Jimp = require("jimp");
 
 const { User } = require("../models/user");
 
-const { HttpError, ctrlWrapper } = require("../helpers");
+const { HttpError, ctrlWrapper, sendEmail } = require("../helpers");
 
-const { SECRET_KEY } = process.env;
+const { SECRET_KEY, BASE_URL } = process.env;
 
 const register = async (req, res) => {
   const { email, password } = req.body;
@@ -21,11 +22,20 @@ const register = async (req, res) => {
 
   const hashPassword = await bcrypt.hash(password, 10);
   const avatarURL = gravatar.url(email);
+  const verificationToken = crypto.randomUUID();
+
+  await sendEmail({
+    to: email,
+    subject: "Verify email",
+    html: `To confirm your registration please click on the <a href="${BASE_URL}/users/verify/${verificationToken}">link</a>`,
+    text: `To confirm your registration please open the link ${BASE_URL}/users/verify/${verificationToken}`,
+  });
 
   const newUser = await User.create({
     ...req.body,
     password: hashPassword,
     avatarURL,
+    verificationToken,
   });
 
   res.status(201).json({
@@ -33,6 +43,49 @@ const register = async (req, res) => {
       email: newUser.email,
       subscription: newUser.subscription,
     },
+  });
+};
+
+async function verify(req, res, next) {
+  const { verificationToken } = req.params;
+
+  const user = await User.findOne({ verificationToken }).exec();
+
+  if (user === null) {
+    throw HttpError(404);
+  }
+
+  await User.findByIdAndUpdate(user._id, {
+    verify: true,
+    verificationToken: null,
+  });
+
+  res.send({ message: "Verification successful" });
+}
+
+const resendVerifyEmail = async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    throw HttpError(400, "Missing required field email");
+  }
+
+  const { verificationToken } = await User.findOne({ email });
+
+  if (!verificationToken) {
+    throw HttpError(400, "Verification has already been passed");
+  }
+
+  const verifyEmail = {
+    to: email,
+    subject: "Verify email",
+    html: `To confirm your registration please click on the <a target="_blank" href="${BASE_URL}/users/verify/${verificationToken}">Click verify email</a>`,
+    text: `To confirm your registration please open the link ${BASE_URL}/users/verify/${verificationToken}`,
+  };
+
+  await sendEmail(verifyEmail);
+
+  res.json({
+    message: "Verification email sent",
   });
 };
 
@@ -50,6 +103,10 @@ const login = async (req, res) => {
   const payload = {
     id: user._id,
   };
+
+  if (user.verify !== true) {
+    return res.status(401).send({ message: "Your account is not verified" });
+  }
 
   const token = jwt.sign(payload, SECRET_KEY, { expiresIn: "23h" });
   await User.findByIdAndUpdate(user._id, { token });
@@ -116,6 +173,8 @@ const uploadAvatar = async (req, res, next) => {
 
 module.exports = {
   register: ctrlWrapper(register),
+  verify: ctrlWrapper(verify),
+  resendVerifyEmail: ctrlWrapper(resendVerifyEmail),
   login: ctrlWrapper(login),
   getCurrent: ctrlWrapper(getCurrent),
   logout: ctrlWrapper(logout),
